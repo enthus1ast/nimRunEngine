@@ -1,7 +1,7 @@
 import osproc, tables, random, chronicles, streams, times
 
 type
-  JobId = int
+  JobId* = int
   RunEngineJob* = object
     jobid: JobId
     shellCommand: bool = true
@@ -49,6 +49,13 @@ proc addJob*(runEngine: var RunEngine, cmd: string, timeout = 10_000): JobId =
     enqueTime: now()
   )
   runEngine.jobsQueued.add runEngineJob
+
+proc getExecutionTime*(job: RunEngineJob): Duration =
+  return job.doneTime - job.startTime
+
+proc getExecutionTime*(runEngine: RunEngine, jobid: JobId): Duration =
+  let job = runEngine.jobs[jobid]
+  return job.getExecutionTime()
 
 proc runQueued*(runEngine: var RunEngine) =
   ## actually runs the queued jobs
@@ -117,7 +124,9 @@ when isMainModule:
     ## do something with the output
     for jobid in doneJobs: 
       let js = re.getJob(jobid)
+      echo "Runtime: ", js.getExecutionTime()
       echo js.outp
+
       # re.removeJob(jobid)
     # echo re.addJob(cmd = "ip a")
     # echo re.addJob(cmd = "ip a")
