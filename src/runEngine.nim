@@ -128,7 +128,7 @@ when isMainModule:
 
   while true:
     echo "."
-    let doneJobs = re.tick()
+    let doneJobs = re.tick() ## drives the engine
     ## do something with the output
     for jobid in doneJobs: 
       let js = re.getJob(jobid)
@@ -137,9 +137,6 @@ when isMainModule:
       # re.clear()
 
     # echo re.addJob(cmd = "ip a")
-    # re.runQueued()
 
     sleep(1000)
     echo re.removeDoneJobs()
-  
-
