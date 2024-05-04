@@ -1,8 +1,8 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.2.0"
 author        = "David Krause (enthus1ast)"
-description   = "A new awesome nimble package"
+description   = "A module that runs shell jobs in parallel"
 license       = "MIT"
 srcDir        = "src"
 

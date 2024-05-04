@@ -8,6 +8,7 @@ type
     shellCommand: bool = true
     timeout: int = 1_000 * 60 * 5 # 5 minutes
     cmd: string ## the command that is executed
+    args: seq[string] ## the arguments to the cmd, only used if `shellCommand == false`
     process: Process ## the process that is spawned (if not shell cmd??)
     started: bool = false ## if the process has started
     done: bool = false ## if the process is done
@@ -34,6 +35,7 @@ proc newRunEngine*(): RunEngine =
 
 proc addJob*(runEngine: var RunEngine, cmd: string, timeout = 10_000, remoteJobid: JobId = 0): JobId =
   ## adds a new job to the RunEngine, it does NOT run it yet.
+  ## `cmd` is interpreted by the system shell
   result = runEngine.genJobId()
   var runEngineJob = RunEngineJob(
     remoteJobid: remoteJobid,
@@ -44,6 +46,22 @@ proc addJob*(runEngine: var RunEngine, cmd: string, timeout = 10_000, remoteJobi
     enqueTime: now()
   )
   runEngine.jobsQueued.add runEngineJob
+
+proc addJob*(runEngine: var RunEngine, cmd: string, args: seq[string], timeout = 10_000, remoteJobid: JobId = 0): JobId =
+  ## adds a new job to the RunEngine, it does NOT run it yet.
+  ## `cmd` is NOT interpreted by the system shell, param must be explicitly given in `args`
+  result = runEngine.genJobId()
+  var runEngineJob = RunEngineJob(
+    remoteJobid: remoteJobid,
+    jobid: result,
+    shellCommand: false,
+    timeout: timeout,
+    cmd: cmd,
+    args: args,
+    enqueTime: now()
+  )
+  runEngine.jobsQueued.add runEngineJob
+
 
 proc getExecutionTime*(job: RunEngineJob): Duration =
   return job.doneTime - job.startTime
@@ -66,7 +84,12 @@ proc runQueued(runEngine: var RunEngine) =
         options = {poEvalCommand, poDaemon, poStdErrToStdOut}
       )
     else:
-      raise
+      job.process = startProcess(
+        command = qq.cmd,
+        args = qq.args,
+        workingDir = qq.workingDir,
+        options = {poDaemon, poStdErrToStdOut}
+      )
     runEngine.jobs[job.jobid] = job
   runEngine.jobsQueued = @[]
 
@@ -81,16 +104,35 @@ proc tick*(runEngine: var RunEngine): seq[JobId] =
       job.doneTime = now()
       job.done = true
 
-proc getJob*(runEngine: RunEngine, jobid: JobId): RunEngineJob =
+proc getJob*(runEngine: RunEngine, jobid: JobId): RunEngineJob {.raises: KeyError.} =
   return runEngine.jobs[jobid]
 
 proc getJobs*(runEngine: RunEngine, jobids: seq[JobId]): seq[RunEngineJob] =
   for jobid in jobids:
     result.add runEngine.getJob(jobid)
 
+
 proc removeJob*(runEngine: var RunEngine, jobid: JobId) =
-  debug "remove job", jobid = jobid
-  runEngine.jobs[jobid].process.close()
+  ## terminates the given job (by its jobid), and removes it from the engine
+  logScope:
+    jobid = jobid
+  debug "remove job"
+  
+  # If not started yet, filter from queued jobs
+  var stillQueued: seq[RunEngineJob] = @[]
+  for qjob in runEngine.jobsQueued:
+    if qjob.jobid != jobid:
+      stillQueued.add qjob
+  
+  # If already running
+  try:
+    runEngine.jobs[jobid].process.terminate()
+  except:
+    debug "could not terminate"
+  try:
+    runEngine.jobs[jobid].process.close()
+  except:
+    debug "could not close handles"
   runEngine.jobs.del(jobid)
 
 proc removeDoneJobs*(runEngine: var RunEngine): seq[JobId] =
@@ -110,31 +152,35 @@ proc clear*(runEngine: var RunEngine) =
       discard
   runEngine.jobs.clear() 
 
-    
-
 
 when isMainModule:
   import os
   var re = newRunEngine()
 
-  discard re.addJob(cmd = "ip a")
-  discard re.addJob(cmd = "ip a")
-  discard re.addJob(cmd = "ip a")
-  discard re.addJob(cmd = "ip a")
-  discard re.addJob(cmd = "asjdkfl")
-  discard re.addJob(cmd = "sleep 5; echo foo")
-  discard re.addJob(cmd = "sleep 6; echo foo2")
-  discard re.addJob(cmd = "sleep 7; echo foo3")
+  # discard re.addJob(cmd = "ip a")
+  discard re.addJob(cmd = "/usr/bin/ip", args = @["a"])
+
+  # discard re.addJob(cmd = "ip a")
+  # discard re.addJob(cmd = "ip a")
+  # discard re.addJob(cmd = "ip a")
+  # discard re.addJob(cmd = "asjdkfl")
+  # discard re.addJob(cmd = "sleep 5; echo foo")
+  # discard re.addJob(cmd = "sleep 6; echo foo2")
+  # discard re.addJob(cmd = "sleep 70; echo foo3")
 
   while true:
     echo "."
     let doneJobs = re.tick() ## drives the engine
     ## do something with the output
     for jobid in doneJobs: 
-      let js = re.getJob(jobid)
-      echo "Runtime: ", js.getExecutionTime()
-      echo js.outp
-      # re.clear()
+      try:
+        let js = re.getJob(jobid)
+        echo "Runtime: ", js.getExecutionTime()
+        echo "exitCode: ", js.exitCode
+        echo js.outp
+      except:
+        continue
+      re.clear()
 
     # echo re.addJob(cmd = "ip a")
 
